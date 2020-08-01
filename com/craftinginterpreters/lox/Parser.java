@@ -17,26 +17,95 @@ class Parser {
   The parser works in order of precedence. The precedence order is:
   
   Statements { 
-    declaration
-    statement
-    expressionStatement
+    declaration : [
+        class declaration,
+        function declaration,
+        variable declaration
+    ]
+    statement : [
+        expression statement,
+        for statement,
+        if statement,
+        print statement
+        return statement
+        while statement
+        block
+    ]
   }
   Expressions {
     expression
     assignment
+    logic_or
+    logic_and
     equality
     comparison
     addition
     multiplication
     unary
+    call
     primary
   }
 
   When you call one of these functions, it tries to parse anything of its
-  precedence or HIGHER via recursive calls to those higher precedence operators,
-  and then when it cannot parse anymore, it returns (and presumably it returns to a
-  lower-precedence operator that itself called the function).
+  precedence or HIGHER via:
+  (1) some real code that does parsing, and then
+  (2) a recursive call to a higher-precedence level function.
+  It tries to parse as much as possible; that is, it is as greedy as possible
+  about how many tokens it consumes. Let's take a look at 2 examples:
+  
+  Example 1:
+  ```
+  private Stmt declaration() {
+    try {
+      if (attemptConsume(CLASS)) return classDeclaration();
+      if (attemptConsume(FUN)) return function("function");
+      if (attemptConsume(VAR)) return varDeclaration();
 
+      return statement();
+    } catch (ParseError error) {
+      synchronize();
+      return null;
+    }
+  }
+  ```
+  
+  Here, we first try to parse it as a class / function / variable declaration, and if
+  those fail (e.g. for something like `a = 6;`, we hand off to statement() to finish
+  the job for us).
+  
+  Example 2:
+  ```
+  private Expr multiplication() {
+    Expr expr = unary();
+
+    while (attemptConsume(SLASH, STAR)) {
+      Token operator = prev();
+      Expr right = unary();
+      expr = new Expr.Binary(expr, operator, right);
+    }
+
+    return expr;
+  }
+  ```
+  
+  First, we parse as much as we can on the left side with a call to higher-precedence
+  `unary()`; so, for example, in `!maybeTrue() * 12`, we would use `unary()` to first
+  parse out `!maybetrue()`. After this level of parsing, we should be either
+  (1) finished, or (2) at a multiplication operator (/,*), or (3) a lower-precedence
+  operator, e.g. +. In (1), we are done and we return; if (2), the while block takes
+  effect, and if (3), we return upwards.
+  
+  What does returning upwards mean? We start parsing with the lowest precedence
+  operator and then recursively call downwards, which is why the multiplication() call
+  is most likely called from the lower-precedence addition() function. Once we return
+  back to addition(), that lower precedence function will take care of the `+`. We will
+  see that this is also what multiplication does here, down to unary().
+  
+  If we hit (2), then we parse the right side of the multiplication as a unary(), and we
+  wrap the 2 unaries (the first unary was parsed at the very beginning) into an Expr.Binary
+  class and return that.
+
+  TODO: Check this logic.
   So, for example, let's say we are parsing `myVar + 2 * 3 == 6`. We will walk through
   only the most important steps.
 
@@ -64,6 +133,8 @@ class Parser {
       aba) comparison() recursively calls down to primary()
         abaa) primary recognizes `6`; returns it back up
   */
+  
+  // This class's very own named RuntimeException :)
   private static class ParseError extends RuntimeException {}
 
   // Input array of Tokens
@@ -71,23 +142,22 @@ class Parser {
   // Position of current token that is being parsed
   private int current = 0;
 
-  Parser(List<Token> tokens) {
-    this.tokens = tokens;
-  }
+  // ctor
+  Parser(List<Token> tokens) { this.tokens = tokens; }
 
   // Self-explanatory
-  private Token peek() { return tokens.get(current); }
-  private boolean isAtEnd() { return peek().type == EOF; }
-  private Token previous() { return tokens.get(current - 1); }
+  private Token curr() { return tokens.get(current); }
+  private Token prev() { return tokens.get(current - 1); }
+  private boolean isAtEnd() { return curr().type == EOF; }
   // Advances current by 1; returns the `advanced token`
   private Token advance() {
     if (!isAtEnd()) current++;
-    return previous();
+    return prev();
   }
   // Checks whether the current token matches the argument type.
   private boolean check(TokenType type) {
     if (isAtEnd()) return false;
-    return peek().type == type;
+    return curr().type == type;
   }
   // Attempts to consume one of `types`; if successful, return true
   private boolean attemptConsume(TokenType... types) {
@@ -102,16 +172,15 @@ class Parser {
   // Expects to consume `type` from current Token; if not, error.
   private Token expectConsume(TokenType type, String message) {
     if (check(type)) return advance();
-
-    throw error(peek(), message);
+    throw error(curr(), message);
   }
 
+  // Worker function.
   List<Stmt> parse() {
     List<Stmt> statements = new ArrayList<>();
-    while (!isAtEnd()) {
-      statements.add(declaration());
-    }
-
+    // Remember the hierarchy: declaration() parses any matching
+    // declaration or statement.
+    while (!isAtEnd()) { statements.add(declaration()); }   
     return statements; 
   }
 
@@ -126,6 +195,7 @@ class Parser {
 
       return statement();
     } catch (ParseError error) {
+      // TODO: Explain
       synchronize();
       return null;
     }
@@ -138,7 +208,7 @@ class Parser {
     Expr.Variable superclass = null;
     if (attemptConsume(LESS)) {
       expectConsume(IDENTIFIER, "Expect superclass name.");
-      superclass = new Expr.Variable(previous());
+      superclass = new Expr.Variable(prev());
     }
 
 
@@ -247,7 +317,7 @@ class Parser {
 
   // returnStmt → "return" expression? ";" ;
   private Stmt returnStatement() {
-    Token keyword = previous();
+    Token keyword = prev();
     Expr value = null;  // if `return;` return nil
     if (!check(SEMICOLON)) {
       value = expression();
@@ -294,7 +364,7 @@ class Parser {
     if (!check(RIGHT_PAREN)) {  // if > 0 parameters
       do {
         if (parameters.size() >= 255) {
-          error(peek(), "Cannot have more than 255 parameters.");
+          error(curr(), "Cannot have more than 255 parameters.");
         }
 
         parameters.add(expectConsume(IDENTIFIER, "Expect parameter name."));
@@ -326,7 +396,7 @@ class Parser {
       // If we hit an assignment (`=`), then expr is no longer valid because
       // expr is no longer a real expression (it is an l-value). However, all l-values
       // are gramatically correct if interpreted as expressions, so we cheat a lil here.
-      Token equals = previous();
+      Token equals = prev();
       Expr value = assignment();
 
       if (expr instanceof Expr.Variable) {
@@ -350,7 +420,7 @@ class Parser {
     Expr expr = and();
 
     while (attemptConsume(OR)) {
-      Token operator = previous();
+      Token operator = prev();
       Expr right = and();
       expr = new Expr.Logical(expr, operator, right);
     }
@@ -363,7 +433,7 @@ class Parser {
     Expr expr = equality();
 
     while (attemptConsume(AND)) {
-      Token operator = previous();
+      Token operator = prev();
       Expr right = equality();
       expr = new Expr.Logical(expr, operator, right);
     }
@@ -376,7 +446,7 @@ class Parser {
     Expr expr = comparison();
 
     while (attemptConsume(BANG_EQUAL, EQUAL_EQUAL)) {
-      Token operator = previous();
+      Token operator = prev();
       Expr right = comparison();
       expr = new Expr.Binary(expr, operator, right);
     }
@@ -389,7 +459,7 @@ class Parser {
     Expr expr = addition();
 
     while (attemptConsume(GREATER, GREATER_EQUAL, LESS, LESS_EQUAL)) {
-      Token operator = previous();
+      Token operator = prev();
       Expr right = addition();
       expr = new Expr.Binary(expr, operator, right);
     }
@@ -402,7 +472,7 @@ class Parser {
     Expr expr = multiplication();
 
     while (attemptConsume(MINUS, PLUS)) {
-      Token operator = previous();
+      Token operator = prev();
       Expr right = multiplication();
       expr = new Expr.Binary(expr, operator, right);
     }
@@ -415,7 +485,7 @@ class Parser {
     Expr expr = unary();
 
     while (attemptConsume(SLASH, STAR)) {
-      Token operator = previous();
+      Token operator = prev();
       Expr right = unary();
       expr = new Expr.Binary(expr, operator, right);
     }
@@ -426,7 +496,7 @@ class Parser {
   // unary → ( "!" | "-" ) unary | call ;
   private Expr unary() {
     if (attemptConsume(BANG, MINUS)) {
-      Token operator = previous();
+      Token operator = prev();
       Expr right = unary();
       return new Expr.Unary(operator, right);
     }
@@ -468,7 +538,7 @@ class Parser {
       do {
         // To match bytecode C interpreter
         if (arguments.size() >= 255) {
-          error(peek(), "Cannot have more than 255 arguments.");
+          error(curr(), "Cannot have more than 255 arguments.");
         }
         arguments.add(expression());
       } while (attemptConsume(COMMA));
@@ -490,22 +560,22 @@ class Parser {
     if (attemptConsume(NIL)) return new Expr.Literal(null);
 
     if (attemptConsume(NUMBER, STRING)) {
-      return new Expr.Literal(previous().literal);
+      return new Expr.Literal(prev().literal);
     }
 
     // only allow super.blahblah; super on its own is a syntax error
     if (attemptConsume(SUPER)) {
-      Token keyword = previous();
+      Token keyword = prev();
       expectConsume(DOT, "Expect '.' after 'super'.");
       Token method = expectConsume(IDENTIFIER,
           "Expect superclass method name.");
       return new Expr.Super(keyword, method);
     }
 
-    if (attemptConsume(THIS)) return new Expr.This(previous());
+    if (attemptConsume(THIS)) return new Expr.This(prev());
     
     if (attemptConsume(IDENTIFIER)) {
-      return new Expr.Variable(previous());
+      return new Expr.Variable(prev());
     }
 
     if (attemptConsume(LEFT_PAREN)) {
@@ -515,7 +585,7 @@ class Parser {
     }
 
     // We've encountered a token that cannot start an expression
-    throw error(peek(), "Expect expression.");
+    throw error(curr(), "Expect expression.");
   }
 
   private ParseError error(Token token, String message) {
@@ -526,9 +596,9 @@ class Parser {
     advance();
 
     while (!isAtEnd()) {
-      if (previous().type == SEMICOLON) return;
+      if (prev().type == SEMICOLON) return;
 
-      switch (peek().type) {
+      switch (curr().type) {
         case CLASS:
         case FUN:
         case VAR:
