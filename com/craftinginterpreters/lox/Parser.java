@@ -136,7 +136,11 @@ class Parser {
   
   // This class's very own named RuntimeException :)
   private static class ParseError extends RuntimeException {}
-
+  private ParseError error(Token token, String message) {
+    Lox.error(token, message);
+    return new ParseError();
+  }
+  
   // Input array of Tokens
   private final List<Token> tokens;
   // Position of current token that is being parsed
@@ -174,7 +178,32 @@ class Parser {
     if (check(type)) return advance();
     throw error(curr(), message);
   }
+  
+  // If we hit an error, keep moving until we hit the start of a new
+  // statement before reporting more errors (this avoids reporting
+  // duplicate errors related to an initial error.
+  private void synchronize() {
+    advance();
 
+    while (!isAtEnd()) {
+      if (prev().type == SEMICOLON) return;
+
+      switch (curr().type) {
+        case CLASS:
+        case FUN:
+        case VAR:
+        case FOR:
+        case IF:
+        case WHILE:
+        case PRINT:
+        case RETURN:
+          return;
+      }
+
+      advance();
+    }
+  }  
+  
   // Worker function.
   List<Stmt> parse() {
     List<Stmt> statements = new ArrayList<>();
@@ -202,7 +231,7 @@ class Parser {
   }
   
   // classDecl → "class" IDENTIFIER ( "<" IDENTIFIER )? "{" function* "}"
-  // i.e. `class myClass < superClass { stuff; }
+  // i.e. `class myClass < superClass { stuff; }`
   private Stmt classDeclaration() {
     // "class" was already consumed by declaration()
     Token name = expectConsume(IDENTIFIER, "Expect class name.");
@@ -226,6 +255,29 @@ class Parser {
 
     return new Stmt.Class(name, superclass, methods);
   }
+  
+  // function → IDENTIFIER "(" parameters? ")" block
+  // kind = "function" / "method"
+  private Stmt.Function function(String kind) {
+    Token name = expectConsume(IDENTIFIER, "Expect " + kind + " name.");
+    expectConsume(LEFT_PAREN, "Expect '(' after " + kind + " name.");
+    List<Token> parameters = new ArrayList<>();
+    if (!check(RIGHT_PAREN)) {  // if > 0 parameters
+      do {
+        // To match behaviour with clox
+        if (parameters.size() >= 255) {
+          error(curr(), "Cannot have more than 255 parameters.");
+        }
+
+        parameters.add(expectConsume(IDENTIFIER, "Expect parameter name."));
+      } while (attemptConsume(COMMA));
+    }
+    expectConsume(RIGHT_PAREN, "Expect ')' after parameters.");
+    // block() assumes that `{` has already been matched.
+    expectConsume(LEFT_BRACE, "Expect '{' before " + kind + " body.");
+    List<Stmt> body = block();
+    return new Stmt.Function(name, parameters, body);
+  }
 
   // varDecl → "var" IDENTIFIER ( "=" expression )? ";"
   private Stmt varDeclaration() {
@@ -241,24 +293,24 @@ class Parser {
     return new Stmt.Var(name, initializer);
   }
 
-  // statement → forStmt | ifStmt | printStmt | whileStmt | blockStmt | returnStmt ...| exprStmt ;
+  // statement → forStmt | ifStmt | printStmt | whileStmt | blockStmt | returnStmt | exprStmt
   private Stmt statement() {
     if (attemptConsume(FOR)) return forStatement();
     if (attemptConsume(IF)) return ifStatement();
     if (attemptConsume(PRINT)) return printStatement();
     if (attemptConsume(RETURN)) return returnStatement();
     if (attemptConsume(WHILE)) return whileStatement();
-    // ??? why is this different from the others?
-    if (attemptConsume(LEFT_BRACE)) return new Stmt.Block(block());
+    if (attemptConsume(LEFT_BRACE)) return blockStatement();
     return expressionStatement();
   }
 
-  // forStmt → "for" "(" ( varDecl | exprStmt | ";" ) expression? ";" expression? ")" statement ;
+  // forStmt → "for" "(" ( varDecl | exprStmt | ";" ) expression? ";" expression? ")" statement
   private Stmt forStatement() {
-    // Desugaring; transform forStatement into WHILE statement
+    // Desugaring; transform forStatement into whileStatement
 
     expectConsume(LEFT_PAREN, "Expect '(' after 'for'.");
 
+    // initializer can either be blank, a var declaration, or an expression
     Stmt initializer;
     if (attemptConsume(SEMICOLON)) {
       initializer = null;
@@ -280,15 +332,18 @@ class Parser {
     }
     expectConsume(RIGHT_PAREN, "Expect ')' after for clauses.");
     Stmt body = statement();
+    // Add increment to the bottom of the body (wrapped in a new block)
     if (increment != null) {
       body = new Stmt.Block(Arrays.asList(
           body,
           new Stmt.Expression(increment)));
     }
     
+    // Wrap body in a while loop
     if (condition == null) condition = new Expr.Literal(true);
     body = new Stmt.While(condition, body);
 
+    // Add initializer above while loop
     if (initializer != null) {
       body = new Stmt.Block(Arrays.asList(initializer, body));
     }
@@ -296,7 +351,7 @@ class Parser {
     return body;
   }
 
-  // ifStmt → "if" "(" expression ")" statement ( "else" statement )? ;
+  // ifStmt → "if" "(" expression ")" statement ( "else" statement )?
   private Stmt ifStatement() {
     expectConsume(LEFT_PAREN, "Expect '(' after 'if'.");
     Expr condition = expression();
@@ -311,7 +366,7 @@ class Parser {
     return new Stmt.If(condition, thenBranch, elseBranch);
   }
 
-  // printStmt → "print" expression ";" ;
+  // printStmt → "print" expression ";"
   private Stmt printStatement() {
     Expr value = expression();
     expectConsume(SEMICOLON, "Expect ';' after value.");
@@ -320,6 +375,8 @@ class Parser {
 
   // returnStmt → "return" expression? ";" ;
   private Stmt returnStatement() {
+    // Keep the `return` keyword so that we can use its location for
+    // error reporting etc.
     Token keyword = prev();
     Expr value = null;  // if `return;` return nil
     if (!check(SEMICOLON)) {
@@ -330,9 +387,8 @@ class Parser {
     return new Stmt.Return(keyword, value);
   }
 
-  // whileStmt → "while" "(" expression ")" statement ;
+  // whileStmt → "while" "(" expression ")" statement
   private Stmt whileStatement() {
-    // whileStmt → "while" "(" expression ")" statement ;
     expectConsume(LEFT_PAREN, "Expect '(' after 'while'.");
     Expr condition = expression();
     expectConsume(RIGHT_PAREN, "Expect ')' after condition.");
@@ -342,6 +398,12 @@ class Parser {
   }
 
   // block → "{" declaration* "}" ;
+  private Stmt blockStatement() {
+    return new Stmt.Block(block())
+  }
+  
+  // Parses a block into a list of declaration()s. Will be reused by
+  // things like function bodies.
   private List<Stmt> block() {
     List<Stmt> statements = new ArrayList<>();
 
@@ -353,42 +415,22 @@ class Parser {
     return statements;
   }
 
-  // exprStmt → expression ";" ;
+  // exprStmt → expression ";"
   private Stmt expressionStatement() {
     Expr expr = expression();
     expectConsume(SEMICOLON, "Expect ';' after expression.");
     return new Stmt.Expression(expr);
   }
 
-  private Stmt.Function function(String kind) {
-    Token name = expectConsume(IDENTIFIER, "Expect " + kind + " name.");
-    expectConsume(LEFT_PAREN, "Expect '(' after " + kind + " name.");
-    List<Token> parameters = new ArrayList<>();
-    if (!check(RIGHT_PAREN)) {  // if > 0 parameters
-      do {
-        if (parameters.size() >= 255) {
-          error(curr(), "Cannot have more than 255 parameters.");
-        }
-
-        parameters.add(expectConsume(IDENTIFIER, "Expect parameter name."));
-      } while (attemptConsume(COMMA));
-    }
-    expectConsume(RIGHT_PAREN, "Expect ')' after parameters.");
-    expectConsume(LEFT_BRACE, "Expect '{' before " + kind + " body.");
-    // Note that we consume the { at the beginning of the body here before calling block().
-    // That’s because block() assumes that token has already been matched.
-    List<Stmt> body = block();
-    return new Stmt.Function(name, parameters, body);
-  }
-
   /*** EXPRESSIONS ***/
 
-  // expression → assignment ;
+  // expression → ...assignment
   private Expr expression() {
     return assignment();
   }
 
-  // assignment → ( call "." )? IDENTIFIER "=" assignment | logic_or ;
+  // assignment → ( call "." )? IDENTIFIER "=" assignment ...| logic_or
+  // i.e. `someVar = someValue` or `someObject.someProperty = someValue`
   private Expr assignment() {
     // Tricky; the left side of assignment is an l-value and not an expression.
 
@@ -405,13 +447,13 @@ class Parser {
       if (expr instanceof Expr.Variable) {
         Token name = ((Expr.Variable)expr).name;
         return new Expr.Assign(name, value);
-      } else if (expr instanceof Expr.Get) {  // Set class instance
+      } else if (expr instanceof Expr.Get) {  // Set class property
         Expr.Get get = (Expr.Get)expr;
         return new Expr.Set(get.object, get.name, value);
       }
 
       // Catches things like `a + b = c` because the left side does not evaluate to
-      // Expr.Variable. Also, some tricky cases like `(a) = 1`
+      // Expr.Variable or Expr.Get. Also, some tricky cases like `(a) = 1`
       error(equals, "Invalid assignment target."); 
     }
 
@@ -508,6 +550,7 @@ class Parser {
   }
 
   // call → primary ( "(" arguments? ")" | "." IDENTIFIER )* ;
+  // i.e. someIdentifier(arg1, arg2) or someClass.someProperty
   private Expr call() {
     // Example: egg.scramble(3).with(cheddar) becomes
     //                    ()
@@ -535,6 +578,7 @@ class Parser {
 
     return expr;
   }
+  
   private Expr finishCall(Expr callee) {
     List<Expr> arguments = new ArrayList<>();
     if (!check(RIGHT_PAREN)) {
@@ -551,8 +595,6 @@ class Parser {
 
     return new Expr.Call(callee, paren, arguments);
   }
-
-  // arguments → expression ( "," expression )* ;
 
   // primary → "true" | "false" | "nil" | "this"
   //    | NUMBER | STRING | IDENTIFIER | "(" expression ")"
@@ -589,31 +631,5 @@ class Parser {
 
     // We've encountered a token that cannot start an expression
     throw error(curr(), "Expect expression.");
-  }
-
-  private ParseError error(Token token, String message) {
-    Lox.error(token, message);
-    return new ParseError();
-  }
-  private void synchronize() {
-    advance();
-
-    while (!isAtEnd()) {
-      if (prev().type == SEMICOLON) return;
-
-      switch (curr().type) {
-        case CLASS:
-        case FUN:
-        case VAR:
-        case FOR:
-        case IF:
-        case WHILE:
-        case PRINT:
-        case RETURN:
-          return;
-      }
-
-      advance();
-    }
   }
 }
