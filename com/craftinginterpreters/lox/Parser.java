@@ -201,8 +201,10 @@ class Parser {
     }
   }
   
-  // classDecl → "class" IDENTIFIER ( "<" IDENTIFIER )? "{" function* "}" ;
+  // classDecl → "class" IDENTIFIER ( "<" IDENTIFIER )? "{" function* "}"
+  // i.e. `class myClass < superClass { stuff; }
   private Stmt classDeclaration() {
+    // "class" was already consumed by declaration()
     Token name = expectConsume(IDENTIFIER, "Expect class name.");
 
     Expr.Variable superclass = null;
@@ -211,27 +213,28 @@ class Parser {
       superclass = new Expr.Variable(prev());
     }
 
-
     expectConsume(LEFT_BRACE, "Expect '{' before class body.");
 
     List<Stmt.Function> methods = new ArrayList<>();
     while (!check(RIGHT_BRACE) && !isAtEnd()) {
+      // A class is a list of functions (methods)
+      // TODO: where are the class member variables?
       methods.add(function("method"));
     }
-
+    
     expectConsume(RIGHT_BRACE, "Expect '}' after class body.");
 
     return new Stmt.Class(name, superclass, methods);
   }
 
-  // varDecl → "var" IDENTIFIER ( "=" expression )? ";" ;
+  // varDecl → "var" IDENTIFIER ( "=" expression )? ";"
   private Stmt varDeclaration() {
     // `var` was already consumed in declaration()
     Token name = expectConsume(IDENTIFIER, "Expect variable name.");
 
     Expr initializer = null;
     if (attemptConsume(EQUAL)) {  // We hit `var identifier = expression` case
-      initializer = expression();  // Parse rest as expression
+      initializer = expression();
     }
 
     expectConsume(SEMICOLON, "Expect ';' after variable declaration.");
