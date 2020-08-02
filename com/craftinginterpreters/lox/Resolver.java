@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Stack;
 
-// The resolver solves 2 problems:
+// The resolver solves 3 problems:
 // 1) whenever we resolve a variable, we track down which declaration it refers to;
 //    however, in a static scope language, the variable always resolves to the same
 //    declaration, so this is wasteful
@@ -22,6 +22,7 @@ import java.util.Stack;
 //      var a = "block";
 //      showA();  // should print "global" again because the function closure is a snapshot
 //    }
+// 3) pre-runtime, post-parsetime error checking
 //
 // The solution is to resolve each variable use once. Write a chunk of code that inspects
 // the user’s program, finds every variable mentioned, and figures out which declaration
