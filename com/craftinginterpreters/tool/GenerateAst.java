@@ -50,18 +50,33 @@ public class GenerateAst {
       "Variable : Token name"
     ));
     defineAst(outputDir, "Stmt", Arrays.asList(
-      "Block      : List<Stmt> statements",
-      // Wrapping the superclass in an Expr.Variable early on in the parser gives us an
-      // object that the resolver can hang the resolution information off of.
-      "Class      : Token name, Expr.Variable superclass," +
-                  " List<Stmt.Function> methods",
+      // exprStmt → expression ";"
       "Expression : Expr expression",
-      "Function   : Token name, List<Token> params, List<Stmt> body",
-      "If         : Expr condition, Stmt thenBranch, Stmt elseBranch",
+      
+      // printStmt → "print" expression ";"
       "Print      : Expr expression",
+      
+      // ifStmt → "if" "(" expression ")" statement ( "else" statement )?
+      "If         : Expr condition, Stmt thenBranch, Stmt elseBranch",
+      
+      // whileStmt → "while" "(" expression ")" statement
+      "While      : Expr condition, Stmt body",
+      
+      // varDecl → "var" IDENTIFIER ( "=" expression )? ";"
+      "Var        : Token name, Expr initializer"
+      
+      // function → IDENTIFIER "(" parameters? ")" block
+      "Function   : Token name, List<Token> params, List<Stmt> body",
+
+      // returnStmt → "return" expression? ";"
       "Return     : Token keyword, Expr value",
-      "Var        : Token name, Expr initializer",
-      "While      : Expr condition, Stmt body"
+      
+      // block → "{" statement* "}"
+      "Block      : List<Stmt> statements",
+      
+      // class → "class" IDENTIFIER ( "<" SUPERCLASS_IDENTIFIER )? "{" method* "}"
+      "Class      : Token name, Expr.Variable superclass, List<Stmt.Function> methods"
+      // Wrapping the superclass in an Expr.Variable early on in the parser gives us an object that the resolver can hang the resolution information off of.
     ));
   }
   private static void defineAst(
@@ -92,6 +107,19 @@ public class GenerateAst {
     writer.println("}");
     writer.close();
   }
+  
+  // Uses Visitor pattern for execution: a Statement (or Expression) can be one of
+  // many types; by implementing the Expression Visitor and Statement Visitor abstract
+  // classes, a class agrees to implement accept() functions for all Statement and 
+  // Expression types. Therefore, given a list of Statements, we can simply call 
+  // statement.accept() for all members.
+  //
+  // The benefit of this pattern over implementing the functions in the Statement /
+  // Expression classes themselves is that it allows multiple classes to house its
+  // implementation, so for example, we have two classes (Interpreter and Resolver)
+  // that follow the Visitor pattern, and they can inject their own methods for
+  // statements and expressions in their own class code, and we wouldn't congest the 
+  // Statement / Expression classes with more gunk.
   private static void defineVisitor(
       PrintWriter writer, String baseName, List<String> types) {
     writer.println("  interface Visitor<R> {");
