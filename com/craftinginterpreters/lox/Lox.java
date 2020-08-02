@@ -13,6 +13,7 @@ import java.util.List;
 The Lox program uses a bunch of tools to help it run code:
 - Scanner
 - Parser
+- Resolver
 - Interpreter
 
 */
@@ -32,9 +33,6 @@ public class Lox {
 
     Parser parser = new Parser(tokens);
     List<Stmt> statements = parser.parse();
-    // Expr expression = parser.parse(); // SIMPLER parse for expressions
-    // To debug parser:
-    //System.out.println(new AstPrinter().print(expression));
 
     // Stop if there was a syntax error.
     if (hadError) return;
@@ -46,20 +44,8 @@ public class Lox {
     if (hadError) return;
 
     interpreter.interpret(statements);
-    // To debug expressions:
-    // interpreter.interpret(expression);
   }
 
-  public static void main(String[] args) throws IOException {
-    if (args.length > 1) {  // Only accepts 0 or 1 arguments
-      System.out.println("Usage: jlox [script]");
-      System.exit(64); 
-    } else if (args.length == 1) {  // run file
-      runFile(args[0]);
-    } else {  // repl
-      runPrompt();
-    }
-  }
   private static void runFile(String path) throws IOException {
     byte[] bytes = Files.readAllBytes(Paths.get(path));
     run(new String(bytes, Charset.defaultCharset()));
@@ -67,6 +53,7 @@ public class Lox {
     if (hadError) System.exit(65);
     if (hadRuntimeError) System.exit(70);
   }
+  
   private static void runPrompt() throws IOException {
     InputStreamReader input = new InputStreamReader(System.in);
     BufferedReader reader = new BufferedReader(input);
@@ -98,5 +85,17 @@ public class Lox {
     System.err.println(error.getMessage() +
         "\n[line " + error.token.line + "]");
     hadRuntimeError = true;
+  }
+  
+  // MAIN
+  public static void main(String[] args) throws IOException {
+    if (args.length > 1) {  // Only accepts 0 or 1 arguments
+      System.out.println("Usage: jlox [script]");
+      System.exit(64); 
+    } else if (args.length == 1) {  // run file
+      runFile(args[0]);
+    } else {  // repl
+      runPrompt();
+    }
   }
 }
