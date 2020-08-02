@@ -28,35 +28,24 @@ import java.util.Stack;
 // the user’s program, finds every variable mentioned, and figures out which declaration
 // each refers to. This happens between parsing and interpreting.
 //
-// The output of the resolver is a map locals of Expressions to integers. The integers
-// represent the number of hops up you have to do to arrive at the environment where you
-// can resolve your variable.
+// The output of the resolver is a map locals of Expressions to integers in the interpreter
+// class. The integers represent the number of hops up you have to do to arrive at the
+// environment where you can resolve your variable.
 class Resolver implements Expr.Visitor<Void>, Stmt.Visitor<Void> {
   private final Interpreter interpreter;
+  Resolver(Interpreter interpreter) { this.interpreter = interpreter; }
+  
+  /*** SCOPES ***/
+  
   // chain of Environment objects, mapping variable names to whether they are ready for
   // use (false if only declared, true if defined)
   private final Stack<Map<String, Boolean>> scopes = new Stack<>();
-
-  private enum FunctionType { NONE, FUNCTION, INITIALIZER, METHOD }
-  // Are we inside a function? (To catch erroneous return statements)
-  private FunctionType currentFunction = FunctionType.NONE;
-
-  private enum ClassType { NONE, CLASS, SUBCLASS }
-  // Are we inside a class? (To catch erroneous this statements)
-  private ClassType currentClass = ClassType.NONE;
-
-  Resolver(Interpreter interpreter) {
-    this.interpreter = interpreter;
-  }
-
-  void resolve(List<Stmt> statements) {
-    for (Stmt statement : statements) {
-      resolve(statement);
-    }
-  }
-  private void resolve(Stmt stmt) { stmt.accept(this); }
-  private void resolve(Expr expr) { expr.accept(this); }
-
+  
+  // Create and destroy environments when encountering blocks
+  private void beginScope() { scopes.push(new HashMap<String, Boolean>()); }
+  private void endScope() { scopes.pop(); }
+  
+  // Declare a name in the current scope
   private void declare(Token name) {
     if (scopes.isEmpty()) return;
 
@@ -69,27 +58,49 @@ class Resolver implements Expr.Visitor<Void>, Stmt.Visitor<Void> {
 
     scope.put(name.lexeme, false);
   }
+  
+  // Define a name in current scope
   private void define(Token name) {
     if (scopes.isEmpty()) return;
     scopes.peek().put(name.lexeme, true);
   }
 
+  // Are we inside a function? (To catch erroneous return statements and initializers)
+  private enum FunctionType { NONE, FUNCTION, INITIALIZER, METHOD }
+  private FunctionType currentFunction = FunctionType.NONE;
+
+  // Are we inside a class? (To catch erroneous this statements)
+  private enum ClassType { NONE, CLASS, SUBCLASS }
+  private ClassType currentClass = ClassType.NONE;
+
+  /*** RESOLVING ***/
+  
+  void resolve(List<Stmt> statements) {
+    for (Stmt statement : statements) {
+      resolve(statement);
+    }
+  }
+  
+  private void resolve(Stmt stmt) { stmt.accept(this); }
+  private void resolve(Expr expr) { expr.accept(this); }
+
   private void resolveLocal(Expr expr, Token name) {
     for (int i = scopes.size() - 1; i >= 0; i--) {
       if (scopes.get(i).containsKey(name.lexeme)) {
+        // Updates `locals` map (name -> depth) in interpreter
         interpreter.resolve(expr, scopes.size() - 1 - i);
         return;
       }
     }
-
     // Not found. Assume it is global.
   }
 
   private void resolveFunction(
       Stmt.Function function, FunctionType type) {
+    // Update (global) currentFunction to correct value
     FunctionType enclosingFunction = currentFunction;
     currentFunction = type;
-    beginScope();
+    beginScope(); // New local scope for function
     for (Token param : function.params) {
       declare(param);
       define(param);
@@ -97,7 +108,7 @@ class Resolver implements Expr.Visitor<Void>, Stmt.Visitor<Void> {
     resolve(function.body);
     endScope();
 
-    // Allow for nested functions
+    // Pop function type
     currentFunction = enclosingFunction;
   }
 
@@ -110,9 +121,6 @@ class Resolver implements Expr.Visitor<Void>, Stmt.Visitor<Void> {
     endScope();
     return null;
   }
-  // Create and destroy environments when encountering blocks
-  private void beginScope() { scopes.push(new HashMap<String, Boolean>()); }
-  private void endScope() { scopes.pop(); }
 
   @Override
   public Void visitClassStmt(Stmt.Class stmt) {
