@@ -13,19 +13,40 @@ public class GenerateAst {
     }
     String outputDir = args[0];
     defineAst(outputDir, "Expr", Arrays.asList(
-      "Assign   : Token name, Expr value",
-      "Binary   : Expr left, Token operator, Expr right",
-      "Call     : Expr callee, Token paren, List<Expr> arguments",
-      "Get      : Expr object, Token name",
-      "Grouping : Expr expression",
+      // literal → NUMBER | STRING | "true" | "false" | "nil"
       "Literal  : Object value",
-      // Logicals are different from binary because they require branching
-      // to short-circuit
-      "Logical  : Expr left, Token operator, Expr right",
-      "Set      : Expr object, Token name, Expr value",
-      "Super    : Token keyword, Token method",
-      "This     : Token keyword",
+      
+      // grouping → "(" expression ")"
+      "Grouping : Expr expression",
+      
+      // ( "!" | "-" ) expression
       "Unary    : Token operator, Expr right",
+      
+      // binary → expression ( "!=" | "==" | ">" | ">=" | "<" | "<=" | "-" | "+" | "/" | "*" ) expression
+      "Binary   : Expr left, Token operator, Expr right",
+
+      // logical -> expression ( "or" | "and" ) expression
+      "Logical  : Expr left, Token operator, Expr right",  // Logicals are different from binary because they require branching to short-circuit
+      
+      // get → instance "." IDENTIFIER
+      "Get      : Expr object, Token name",
+      
+      // set → instance "." IDENTIFIER "=" rvalue
+      "Set      : Expr object, Token name, Expr value",
+      
+      // assign → identifier "=" rvalue
+      "Assign   : Token name, Expr value",
+      
+      // call → identifier "(" arguments? ")"
+      "Call     : Expr callee, Token paren, List<Expr> arguments",
+
+      // this → "this"
+      "This     : Token keyword",
+      
+      // super → "super"
+      "Super    : Token keyword, Token method",
+      
+      // variable → identifier | special cases (e.g. superclass)
       "Variable : Token name"
     ));
     defineAst(outputDir, "Stmt", Arrays.asList(
