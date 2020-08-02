@@ -46,7 +46,7 @@ public class GenerateAst {
       // super → "super"
       "Super    : Token keyword, Token method",
       
-      // variable → identifier | special cases (e.g. superclass)
+      // variable → identifier
       "Variable : Token name"
     ));
     defineAst(outputDir, "Stmt", Arrays.asList(
