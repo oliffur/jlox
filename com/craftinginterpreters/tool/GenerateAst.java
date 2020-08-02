@@ -79,9 +79,9 @@ public class GenerateAst {
       // Wrapping the superclass in an Expr.Variable early on in the parser gives us an object that the resolver can hang the resolution information off of.
     ));
   }
-  private static void defineAst(
-      String outputDir, String baseName, List<String> types)
-      throws IOException {
+  
+  // Creates a file for a given Ast data input.
+  private static void defineAst(String outputDir, String baseName, List<String> types) throws IOException {
     String path = outputDir + "/" + baseName + ".java";
     PrintWriter writer = new PrintWriter(path, "UTF-8");
 
@@ -120,23 +120,20 @@ public class GenerateAst {
   // that follow the Visitor pattern, and they can inject their own methods for
   // statements and expressions in their own class code, and we wouldn't congest the 
   // Statement / Expression classes with more gunk.
-  private static void defineVisitor(
-      PrintWriter writer, String baseName, List<String> types) {
+  private static void defineVisitor(PrintWriter writer, String baseName, List<String> types) {
     writer.println("  interface Visitor<R> {");
 
     for (String type : types) {
       String typeName = type.split(":")[0].trim();
-      writer.println("    R visit" + typeName + baseName + "(" +
-          typeName + " " + baseName.toLowerCase() + ");");
+      writer.println("    R visit" + typeName + baseName + "(" + typeName + " " + baseName.toLowerCase() + ");");
     }
 
     writer.println("  }");
   }
-  private static void defineType(
-      PrintWriter writer, String baseName,
-      String className, String fieldList) {
-    writer.println("  static class " + className + " extends " +
-        baseName + " {");
+  
+  // Creates a class for every `type`.
+  private static void defineType(PrintWriter writer, String baseName, String className, String fieldList) {
+    writer.println("  static class " + className + " extends " + baseName + " {");
 
     // Constructor.
     writer.println("    " + className + "(" + fieldList + ") {");
@@ -154,15 +151,12 @@ public class GenerateAst {
     writer.println();
     writer.println("    @Override");
     writer.println("    <R> R accept(Visitor<R> visitor) {");
-    writer.println("      return visitor.visit" +
-        className + baseName + "(this);");
+    writer.println("      return visitor.visit" + className + baseName + "(this);");
     writer.println("    }");
 
     // Fields.
     writer.println();
-    for (String field : fields) {
-      writer.println("    final " + field + ";");
-    }
+    for (String field : fields) { writer.println("    final " + field + ";"); }
 
     writer.println("  }");
   }
