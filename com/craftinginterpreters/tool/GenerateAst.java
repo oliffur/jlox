@@ -43,7 +43,7 @@ public class GenerateAst {
       // this → "this"
       "This     : Token keyword",
       
-      // super → "super"
+      // super → "super" "." IDENTIFIER
       "Super    : Token keyword, Token method",
       
       // variable → identifier
