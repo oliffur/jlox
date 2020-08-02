@@ -19,7 +19,7 @@ public class GenerateAst {
       // grouping → "(" expression ")"
       "Grouping : Expr expression",
       
-      // ( "!" | "-" ) expression
+      // unary → ( "!" | "-" ) expression
       "Unary    : Token operator, Expr right",
       
       // binary → expression ( "!=" | "==" | ">" | ">=" | "<" | "<=" | "-" | "+" | "/" | "*" ) expression
